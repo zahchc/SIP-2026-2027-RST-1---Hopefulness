@@ -1,0 +1,10 @@
+function doPost(e) {
+  var ss = SpreadsheetApp.openById("12LgjYb75Ko9hOy0pMrSGDfj9uQFyG8QEbdM4vNM3yOg"); // replace with your sheet's ID
+  var sheet = ss.getSheetByName("Sheet1"); // replace if your sheet has a different name
+
+  var cell = e.parameter.cell;   // e.g., "A1", "A2", "A3"
+  var status = e.parameter.status; // "TRIGGERED" or "NOT TRIGGERED"
+  sheet.getRange(cell).setValue(status);
+
+  return ContentService.createTextOutput("OK");
+}
