@@ -37,8 +37,8 @@ String cellIDs[] = {
 bool lastSwitchStates[10] = {false};
 
 // ===== WIFI =====
-const char* ssid = "Orbsbunso";
-const char* password = "04Dec2014@nd!";
+const char* ssid = "am";
+const char* password = "090510#zach";
 const char* googleScriptURL =
 "https://script.google.com/macros/s/AKfycby9_3sKtceWSEgwT1K2Kq6BHtQs6UD3p079oCOUglrseTITW_E2JLKifdRRCr1RuMKq/exec";
 
