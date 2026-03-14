@@ -1,0 +1,157 @@
+#include <HardwareSerial.h>
+#include <WiFi.h>
+#include <HTTPClient.h>
+
+// ===== UART PINS (barcode scanner) =====
+#define RX_PIN 16
+#define TX_PIN 17
+HardwareSerial scanner(1);
+
+// ===== MOSFET PIN (solenoid lock) =====
+#define MOSFET_PIN 22
+#define UNLOCK_TIME 3000  // 3 seconds
+const String AUTH_CODE = "13-3087";
+
+// ===== MICROSWITCH PINS =====
+const int switchPins[] = {
+  26, // slot 1 → A2
+  27, // slot 2 → A3
+  13, // slot 3 → A4
+  12, // slot 4 → A5
+  14, // slot 5 → A6
+
+  32, // slot 6 → A7  (this was actually what we thought was switch 9)
+  18, // slot 7 → A8
+  25, // slot 8 → A9
+  19, // slot 9 → A10
+  33  // slot 10 → A11
+};
+
+const int numSwitches = sizeof(switchPins) / sizeof(switchPins[0]);
+
+String cellIDs[] = {
+  "A2","A3","A4","A5","A6",
+  "A7","A8","A9","A10","A11"
+};
+
+bool lastSwitchStates[10] = {false};
+
+// ===== WIFI =====
+const char* ssid = "Orbsbunso";
+const char* password = "04Dec2014@nd!";
+const char* googleScriptURL =
+"https://script.google.com/macros/s/AKfycby9_3sKtceWSEgwT1K2Kq6BHtQs6UD3p079oCOUglrseTITW_E2JLKifdRRCr1RuMKq/exec";
+
+// ===== VARIABLES =====
+String buffer = "";
+bool lockOpen = false;
+unsigned long unlockMillis = 0;
+
+// ---------- FUNCTIONS ----------
+void unlockSolenoid() {
+  if (lockOpen) return;  // already unlocked, ignore re-scan
+
+  digitalWrite(MOSFET_PIN, HIGH);
+  lockOpen = true;
+  unlockMillis = millis();
+  Serial.println("solenoid unlocked");
+}
+
+void sendToGoogleSheet(String cell, String state) {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("wifi down — skipping sheet update");
+    return;
+  }
+
+  HTTPClient http;
+  http.begin(googleScriptURL);
+  http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+
+  String postData = "cell=" + cell + "&status=" + state;
+  int httpCode = http.POST(postData);
+
+  if (httpCode > 0) {
+    Serial.printf("sheet updated (%s → %s)\n", cell.c_str(), state.c_str());
+  } else {
+    Serial.printf("sheet error: %d\n", httpCode);
+  }
+
+  http.end();
+}
+
+// ---------- SETUP ----------
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+
+  scanner.begin(9600, SERIAL_8N1, RX_PIN, TX_PIN);
+
+  pinMode(MOSFET_PIN, OUTPUT);
+  digitalWrite(MOSFET_PIN, LOW); // locked on boot
+
+  for (int i = 0; i < numSwitches; i++) {
+    pinMode(switchPins[i], INPUT_PULLUP);
+    lastSwitchStates[i] = false;
+  }
+
+  Serial.print("connecting wifi");
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("\nwifi connected");
+  Serial.println("system ready");
+}
+
+// ---------- LOOP ----------
+void loop() {
+
+  // ===== BARCODE SCANNER =====
+  while (scanner.available()) {
+    char c = scanner.read();
+
+    if (c == '\n' || c == '\r') {
+      if (buffer.length() > 0) {
+        buffer.trim();
+        Serial.print("scanned: ");
+        Serial.println(buffer);
+
+        if (buffer == AUTH_CODE) {
+          unlockSolenoid();
+        } else {
+          Serial.println("unauthorized barcode");
+        }
+
+        buffer = "";
+      }
+    } else {
+      buffer += c;
+    }
+  }
+
+  // ===== AUTO RELOCK AFTER 5 SECONDS =====
+  if (lockOpen && millis() - unlockMillis >= UNLOCK_TIME) {
+    digitalWrite(MOSFET_PIN, LOW);
+    lockOpen = false;
+    Serial.println("solenoid locked");
+  }
+
+// ===== MICROSWITCH LOGGING =====
+for (int i = 0; i < numSwitches; i++) {
+  bool currentState = (digitalRead(switchPins[i]) == LOW); // pressed = true
+
+  if (currentState != lastSwitchStates[i]) {
+    String status = currentState ? "PHONE" : "NO PHONE";  // <- change here
+
+    Serial.printf("switch %d (gpio %d): %s\n",
+                  i + 1, switchPins[i], status.c_str());
+
+    sendToGoogleSheet(cellIDs[i], status);
+    lastSwitchStates[i] = currentState;
+  }
+}
+
+  delay(50); // debounce
+}
